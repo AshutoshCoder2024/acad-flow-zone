@@ -14,16 +14,301 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      activity_logs: {
+        Row: {
+          action: string
+          actor_id: string | null
+          created_at: string
+          entity: string | null
+          entity_id: string | null
+          id: string
+          metadata: Json | null
+        }
+        Insert: {
+          action: string
+          actor_id?: string | null
+          created_at?: string
+          entity?: string | null
+          entity_id?: string | null
+          id?: string
+          metadata?: Json | null
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          created_at?: string
+          entity?: string | null
+          entity_id?: string | null
+          id?: string
+          metadata?: Json | null
+        }
+        Relationships: []
+      }
+      attendance: {
+        Row: {
+          created_at: string
+          date: string
+          id: string
+          marked_by: string
+          status: Database["public"]["Enums"]["attendance_status"]
+          student_id: string
+          subject: string
+        }
+        Insert: {
+          created_at?: string
+          date: string
+          id?: string
+          marked_by: string
+          status: Database["public"]["Enums"]["attendance_status"]
+          student_id: string
+          subject: string
+        }
+        Update: {
+          created_at?: string
+          date?: string
+          id?: string
+          marked_by?: string
+          status?: Database["public"]["Enums"]["attendance_status"]
+          student_id?: string
+          subject?: string
+        }
+        Relationships: []
+      }
+      events: {
+        Row: {
+          cover_url: string | null
+          created_at: string
+          created_by: string
+          description: string
+          event_date: string
+          id: string
+          registration_link: string | null
+          status: Database["public"]["Enums"]["event_status"]
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          cover_url?: string | null
+          created_at?: string
+          created_by: string
+          description: string
+          event_date: string
+          id?: string
+          registration_link?: string | null
+          status?: Database["public"]["Enums"]["event_status"]
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          cover_url?: string | null
+          created_at?: string
+          created_by?: string
+          description?: string
+          event_date?: string
+          id?: string
+          registration_link?: string | null
+          status?: Database["public"]["Enums"]["event_status"]
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      gallery: {
+        Row: {
+          caption: string | null
+          created_at: string
+          event_id: string
+          id: string
+          image_url: string
+          uploaded_by: string
+        }
+        Insert: {
+          caption?: string | null
+          created_at?: string
+          event_id: string
+          id?: string
+          image_url: string
+          uploaded_by: string
+        }
+        Update: {
+          caption?: string | null
+          created_at?: string
+          event_id?: string
+          id?: string
+          image_url?: string
+          uploaded_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gallery_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notices: {
+        Row: {
+          attachment_name: string | null
+          attachment_url: string | null
+          created_at: string
+          description: string
+          id: string
+          posted_by: string
+          priority: Database["public"]["Enums"]["notice_priority"]
+          target_role: Database["public"]["Enums"]["app_role"] | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          attachment_name?: string | null
+          attachment_url?: string | null
+          created_at?: string
+          description: string
+          id?: string
+          posted_by: string
+          priority?: Database["public"]["Enums"]["notice_priority"]
+          target_role?: Database["public"]["Enums"]["app_role"] | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          attachment_name?: string | null
+          attachment_url?: string | null
+          created_at?: string
+          description?: string
+          id?: string
+          posted_by?: string
+          priority?: Database["public"]["Enums"]["notice_priority"]
+          target_role?: Database["public"]["Enums"]["app_role"] | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          department: string | null
+          email: string
+          full_name: string
+          id: string
+          roll_number: string | null
+          semester: number | null
+          updated_at: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          department?: string | null
+          email: string
+          full_name?: string
+          id: string
+          roll_number?: string | null
+          semester?: number | null
+          updated_at?: string
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          department?: string | null
+          email?: string
+          full_name?: string
+          id?: string
+          roll_number?: string | null
+          semester?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      resources: {
+        Row: {
+          created_at: string
+          description: string | null
+          file_name: string
+          file_url: string
+          id: string
+          semester: number
+          subject: string
+          title: string
+          type: Database["public"]["Enums"]["resource_type"]
+          updated_at: string
+          uploaded_by: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          file_name: string
+          file_url: string
+          id?: string
+          semester: number
+          subject: string
+          title: string
+          type: Database["public"]["Enums"]["resource_type"]
+          updated_at?: string
+          uploaded_by: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          file_name?: string
+          file_url?: string
+          id?: string
+          semester?: number
+          subject?: string
+          title?: string
+          type?: Database["public"]["Enums"]["resource_type"]
+          updated_at?: string
+          uploaded_by?: string
+        }
+        Relationships: []
+      }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_my_roles: {
+        Args: never
+        Returns: Database["public"]["Enums"]["app_role"][]
+      }
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "student" | "teacher" | "admin"
+      attendance_status: "present" | "absent"
+      event_status: "upcoming" | "completed"
+      notice_priority: "low" | "medium" | "high"
+      resource_type: "notes" | "pyq" | "lab_manual"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +435,12 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["student", "teacher", "admin"],
+      attendance_status: ["present", "absent"],
+      event_status: ["upcoming", "completed"],
+      notice_priority: ["low", "medium", "high"],
+      resource_type: ["notes", "pyq", "lab_manual"],
+    },
   },
 } as const
