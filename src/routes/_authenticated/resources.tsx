@@ -192,7 +192,7 @@ function ResourcesPage() {
   );
 }
 
-function ResourceForm({ onSubmit }: { onSubmit: (f: FormData, file: File | null) => Promise<void> }) {
+function ResourceForm({ onSubmit }: { onSubmit: (f: FormData, file: File | null) => Promise<unknown> }) {
   const [file, setFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
   return (

@@ -220,7 +220,7 @@ function NoticesPage() {
   );
 }
 
-function NoticeForm({ onSubmit }: { onSubmit: (f: FormData, file: File | null) => Promise<void> }) {
+function NoticeForm({ onSubmit }: { onSubmit: (f: FormData, file: File | null) => Promise<unknown> }) {
   const [file, setFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
   return (

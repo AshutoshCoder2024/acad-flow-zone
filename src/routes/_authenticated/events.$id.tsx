@@ -138,7 +138,7 @@ function EventDetail() {
   );
 }
 
-function UploadForm({ onSubmit }: { onSubmit: (file: File, caption: string) => Promise<void> }) {
+function UploadForm({ onSubmit }: { onSubmit: (file: File, caption: string) => Promise<unknown> }) {
   const [file, setFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
   return (

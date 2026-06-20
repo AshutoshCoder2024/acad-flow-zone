@@ -156,7 +156,7 @@ function EventsPage() {
   );
 }
 
-function EventForm({ onSubmit }: { onSubmit: (f: FormData) => Promise<void> }) {
+function EventForm({ onSubmit }: { onSubmit: (f: FormData) => Promise<unknown> }) {
   const [submitting, setSubmitting] = useState(false);
   return (
     <form
