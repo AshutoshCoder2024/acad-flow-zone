@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { rollToEmail, type AppRole } from "@/lib/auth-helpers";
 import { useAuth } from "@/hooks/use-auth";
+import { adminLogin } from "@/functions/admin-auth.functions";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,20 +26,47 @@ const signinStudentSchema = z.object({
   password: z.string().min(6, "Min 6 characters").max(128),
 });
 
-const signinStaffSchema = z.object({
+const signinTeacherSchema = z.object({
   email: z.string().trim().email().max(255),
   password: z.string().min(6).max(128),
 });
 
+const signinAdminSchema = z.object({
+  username: z.string().trim().min(1, "Username required").max(100),
+  password: z.string().min(1, "Password required").max(128),
+});
+
 const signupSchema = z.object({
-  role: z.enum(["student", "teacher", "admin"]),
+  role: z.enum(["student", "teacher"]),
   full_name: z.string().trim().min(2).max(100),
   email: z.string().trim().email().max(255).optional(),
   roll: z.string().trim().min(2).max(40).optional(),
-  department: z.string().trim().max(100).optional(),
+  department: z.string().trim().min(1, "Department required").max(100).optional(),
   semester: z.coerce.number().int().min(1).max(12).optional(),
   password: z.string().min(6).max(128),
 });
+
+async function blockUnverifiedTeacher(userId: string): Promise<boolean> {
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("verification_status")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (profile?.verification_status === "pending") {
+    await supabase.auth.signOut();
+    toast.error("Your account is pending administrator approval.");
+    return true;
+  }
+
+  if (profile?.verification_status === "rejected") {
+    await supabase.auth.signOut();
+    toast.error("Your registration request was rejected. Contact your administrator.");
+    return true;
+  }
+
+  return false;
+}
 
 function AuthPage() {
   const navigate = useNavigate();
@@ -76,15 +104,14 @@ function AuthPage() {
                     await refresh();
                     navigate({ to: "/dashboard" });
                   }}
+                  onAdminDone={async () => {
+                    await refresh();
+                    navigate({ to: "/admin" });
+                  }}
                 />
               </TabsContent>
               <TabsContent value="signup">
-                <SignUpForm
-                  onDone={async () => {
-                    await refresh();
-                    navigate({ to: "/dashboard" });
-                  }}
-                />
+                <SignUpForm />
               </TabsContent>
             </Tabs>
           </CardContent>
@@ -94,8 +121,15 @@ function AuthPage() {
   );
 }
 
-function SignInForm({ onDone }: { onDone: () => void }) {
-  const [mode, setMode] = useState<"student" | "staff">("student");
+function SignInForm({
+  onDone,
+  onAdminDone,
+}: {
+  onDone: () => void | Promise<void>;
+  onAdminDone: () => void | Promise<void>;
+}) {
+  const { setEnvAdminSession } = useAuth();
+  const [mode, setMode] = useState<"student" | "teacher" | "admin">("student");
   const [loading, setLoading] = useState(false);
 
   async function handleStudent(form: FormData) {
@@ -115,26 +149,54 @@ function SignInForm({ onDone }: { onDone: () => void }) {
     onDone();
   }
 
-  async function handleStaff(form: FormData) {
-    const parsed = signinStaffSchema.safeParse(Object.fromEntries(form));
+  async function handleTeacher(form: FormData) {
+    const parsed = signinTeacherSchema.safeParse(Object.fromEntries(form));
     if (!parsed.success) {
       toast.error(parsed.error.issues[0].message);
       return;
     }
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword(parsed.data);
+    const { data, error } = await supabase.auth.signInWithPassword(parsed.data);
+    if (error) {
+      setLoading(false);
+      return toast.error(error.message);
+    }
+    if (data.user && (await blockUnverifiedTeacher(data.user.id))) {
+      setLoading(false);
+      return;
+    }
     setLoading(false);
-    if (error) return toast.error(error.message);
     toast.success("Signed in");
     onDone();
+  }
+
+  async function handleAdmin(form: FormData) {
+    const parsed = signinAdminSchema.safeParse(Object.fromEntries(form));
+    if (!parsed.success) {
+      toast.error(parsed.error.issues[0].message);
+      return;
+    }
+    setLoading(true);
+    try {
+      await supabase.auth.signOut();
+      const session = await adminLogin({ data: parsed.data });
+      setEnvAdminSession(session);
+      toast.success("Signed in as administrator");
+      await onAdminDone();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Administrator sign-in failed");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
     <div className="mt-4">
       <Tabs value={mode} onValueChange={(v) => setMode(v as typeof mode)}>
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="student">Student</TabsTrigger>
-          <TabsTrigger value="staff">Teacher / Admin</TabsTrigger>
+          <TabsTrigger value="teacher">Teacher</TabsTrigger>
+          <TabsTrigger value="admin">Admin</TabsTrigger>
         </TabsList>
         <TabsContent value="student" className="mt-4">
           <form
@@ -152,19 +214,41 @@ function SignInForm({ onDone }: { onDone: () => void }) {
             </Button>
           </form>
         </TabsContent>
-        <TabsContent value="staff" className="mt-4">
+        <TabsContent value="teacher" className="mt-4">
           <form
             className="space-y-3"
             onSubmit={(e) => {
               e.preventDefault();
-              handleStaff(new FormData(e.currentTarget));
+              handleTeacher(new FormData(e.currentTarget));
             }}
           >
             <Field name="email" label="Email" type="email" placeholder="you@school.edu" />
             <Field name="password" label="Password" type="password" />
+            <p className="text-xs text-muted-foreground">
+              Only verified teachers can sign in. New registrations require administrator approval.
+            </p>
             <Button className="w-full" disabled={loading}>
               {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Sign in
+            </Button>
+          </form>
+        </TabsContent>
+        <TabsContent value="admin" className="mt-4">
+          <form
+            className="space-y-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleAdmin(new FormData(e.currentTarget));
+            }}
+          >
+            <Field name="username" label="Username" placeholder="admin" autoComplete="username" />
+            <Field name="password" label="Password" type="password" autoComplete="current-password" />
+            <p className="text-xs text-muted-foreground">
+              Sign in with the administrator username and password from your server .env file.
+            </p>
+            <Button className="w-full" disabled={loading}>
+              {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Sign in as administrator
             </Button>
           </form>
         </TabsContent>
@@ -173,30 +257,32 @@ function SignInForm({ onDone }: { onDone: () => void }) {
   );
 }
 
-function SignUpForm({ onDone }: { onDone: () => void }) {
+function SignUpForm() {
   const [role, setRole] = useState<AppRole>("student");
   const [loading, setLoading] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
 
   async function handle(form: FormData) {
     const raw = Object.fromEntries(form);
-    const parsed = signupSchema.safeParse({ ...raw, role });
+    const parsed = signupSchema.safeParse({ ...raw, role: role === "teacher" ? "teacher" : "student" });
     if (!parsed.success) {
       toast.error(parsed.error.issues[0].message);
       return;
     }
     const d = parsed.data;
-    const email = role === "student" ? rollToEmail(d.roll!) : d.email!;
-    if (role === "student" && !d.roll) return toast.error("Roll number required");
-    if (role !== "student" && !d.email) return toast.error("Email required");
+    const signupRole = d.role;
+    const email = signupRole === "student" ? rollToEmail(d.roll!) : d.email!;
+    if (signupRole === "student" && !d.roll) return toast.error("Roll number required");
+    if (signupRole === "teacher" && !d.email) return toast.error("Email required");
+    if (signupRole === "teacher" && !d.department) return toast.error("Department required");
 
     setLoading(true);
     const { error } = await supabase.auth.signUp({
       email,
       password: d.password,
       options: {
-        emailRedirectTo: `${window.location.origin}/dashboard`,
         data: {
-          role,
+          role: signupRole,
           full_name: d.full_name,
           roll_number: d.roll ?? null,
           department: d.department ?? null,
@@ -206,8 +292,44 @@ function SignUpForm({ onDone }: { onDone: () => void }) {
     });
     setLoading(false);
     if (error) return toast.error(error.message);
-    toast.success("Account created");
-    onDone();
+
+    await supabase.auth.signOut();
+
+    if (signupRole === "teacher") {
+      setSubmitted(true);
+      toast.success("Registration submitted for review");
+      return;
+    }
+
+    toast.success("Account created — you can sign in now");
+    setSubmitted(true);
+  }
+
+  if (submitted && role === "teacher") {
+    return (
+      <div className="mt-4 space-y-3 rounded-lg border border-border/80 bg-muted/30 p-4 text-sm">
+        <p className="font-medium">Registration submitted</p>
+        <p className="text-muted-foreground">
+          Your teacher account is pending administrator approval. You will be able to sign in once
+          your request has been reviewed.
+        </p>
+        <Button variant="outline" className="w-full" onClick={() => setSubmitted(false)}>
+          Back to sign in
+        </Button>
+      </div>
+    );
+  }
+
+  if (submitted && role === "student") {
+    return (
+      <div className="mt-4 space-y-3 rounded-lg border border-border/80 bg-muted/30 p-4 text-sm">
+        <p className="font-medium">Account created</p>
+        <p className="text-muted-foreground">You can now sign in with your roll number and password.</p>
+        <Button variant="outline" className="w-full" onClick={() => setSubmitted(false)}>
+          Go to sign in
+        </Button>
+      </div>
+    );
   }
 
   return (
@@ -225,7 +347,6 @@ function SignUpForm({ onDone }: { onDone: () => void }) {
           <SelectContent>
             <SelectItem value="student">Student</SelectItem>
             <SelectItem value="teacher">Teacher</SelectItem>
-            <SelectItem value="admin">Administrator</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -241,13 +362,16 @@ function SignUpForm({ onDone }: { onDone: () => void }) {
       ) : (
         <>
           <Field name="email" label="Email" type="email" placeholder="you@school.edu" />
-          <Field name="department" label="Department" placeholder="CSE" />
+          <Field name="department" label="Department" placeholder="CSE" required />
+          <p className="text-xs text-muted-foreground">
+            Teacher accounts require administrator approval before you can sign in.
+          </p>
         </>
       )}
       <Field name="password" label="Password" type="password" placeholder="Min 6 chars" />
       <Button className="w-full" disabled={loading}>
         {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-        Create account
+        {role === "teacher" ? "Submit registration" : "Create account"}
       </Button>
       <p className="text-center text-xs text-muted-foreground">
         By signing up you agree to your department's acceptable-use policy.
@@ -261,16 +385,27 @@ function Field({
   label,
   type = "text",
   placeholder,
+  autoComplete,
+  required,
 }: {
   name: string;
   label: string;
   type?: string;
   placeholder?: string;
+  autoComplete?: string;
+  required?: boolean;
 }) {
   return (
     <div className="space-y-1.5">
       <Label htmlFor={name}>{label}</Label>
-      <Input id={name} name={name} type={type} placeholder={placeholder} autoComplete="off" />
+      <Input
+        id={name}
+        name={name}
+        type={type}
+        placeholder={placeholder}
+        autoComplete={autoComplete ?? "off"}
+        required={required}
+      />
     </div>
   );
 }

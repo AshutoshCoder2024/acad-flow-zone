@@ -1,13 +1,18 @@
 import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Shield, Users, FileText, Megaphone, Calendar as CalIcon } from "lucide-react";
+import { Shield, Users, Megaphone, Calendar as CalIcon, Check, X, Clock } from "lucide-react";
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RTooltip, Legend,
 } from "recharts";
 
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import {
+  adminApproveTeacher,
+  adminRejectTeacher,
+  adminSetUserRole,
+  fetchAdminDashboard,
+} from "@/functions/admin-api.functions";
 import { AppShell } from "@/components/AppShell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -18,7 +23,9 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
 import type { AppRole } from "@/lib/auth-helpers";
+import { VERIFICATION_LABEL } from "@/lib/auth-helpers";
 
 export const Route = createFileRoute("/_authenticated/admin")({
   head: () => ({ meta: [{ title: "Admin — DeptPortal" }] }),
@@ -33,84 +40,168 @@ function AdminGate() {
 }
 
 function AdminPanel() {
+  const { adminToken } = useAuth();
   const qc = useQueryClient();
 
-  const stats = useQuery({
-    queryKey: ["admin-stats"],
-    queryFn: async () => {
-      const [students, teachers, admins, notices, resources, events] = await Promise.all([
-        supabase.from("user_roles").select("*", { count: "exact", head: true }).eq("role", "student"),
-        supabase.from("user_roles").select("*", { count: "exact", head: true }).eq("role", "teacher"),
-        supabase.from("user_roles").select("*", { count: "exact", head: true }).eq("role", "admin"),
-        supabase.from("notices").select("*", { count: "exact", head: true }),
-        supabase.from("resources").select("*", { count: "exact", head: true }),
-        supabase.from("events").select("*", { count: "exact", head: true }),
-      ]);
-      return {
-        students: students.count ?? 0, teachers: teachers.count ?? 0, admins: admins.count ?? 0,
-        notices: notices.count ?? 0, resources: resources.count ?? 0, events: events.count ?? 0,
-      };
-    },
+  const dashboard = useQuery({
+    queryKey: ["admin-dashboard", adminToken],
+    enabled: !!adminToken,
+    queryFn: async () => fetchAdminDashboard({ data: { token: adminToken! } }),
   });
 
-  const users = useQuery({
-    queryKey: ["all-users"],
-    queryFn: async () => {
-      const [{ data: profiles }, { data: roles }] = await Promise.all([
-        supabase.from("profiles").select("*").order("created_at", { ascending: false }),
-        supabase.from("user_roles").select("user_id,role"),
-      ]);
-      const byUser = new Map<string, AppRole[]>();
-      (roles ?? []).forEach((r) => {
-        const arr = byUser.get(r.user_id) ?? [];
-        arr.push(r.role as AppRole);
-        byUser.set(r.user_id, arr);
-      });
-      return (profiles ?? []).map((p) => ({ ...p, roles: byUser.get(p.id) ?? [] }));
-    },
-  });
-
-  async function setRole(userId: string, currentRoles: AppRole[], next: AppRole) {
-    // Replace all roles with chosen single role
-    const { error: delErr } = await supabase.from("user_roles").delete().eq("user_id", userId);
-    if (delErr) return toast.error(delErr.message);
-    const { error } = await supabase.from("user_roles").insert({ user_id: userId, role: next });
-    if (error) return toast.error(error.message);
-    await supabase.from("activity_logs").insert({
-      actor_id: (await supabase.auth.getUser()).data.user?.id,
-      action: "role_change",
-      entity: "user_roles",
-      entity_id: userId,
-      metadata: { from: currentRoles, to: next },
-    });
-    toast.success("Role updated");
-    qc.invalidateQueries({ queryKey: ["all-users"] });
-    qc.invalidateQueries({ queryKey: ["admin-stats"] });
+  async function approveTeacher(userId: string, fullName: string) {
+    if (!adminToken) return;
+    try {
+      await adminApproveTeacher({ data: { token: adminToken, userId, fullName } });
+      toast.success(`${fullName} approved as teacher`);
+      qc.invalidateQueries({ queryKey: ["admin-dashboard"] });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Approval failed");
+    }
   }
 
-  const logs = useQuery({
-    queryKey: ["activity-logs"],
-    queryFn: async () => {
-      const { data } = await supabase.from("activity_logs").select("*").order("created_at", { ascending: false }).limit(50);
-      return data ?? [];
-    },
-  });
+  async function rejectTeacher(userId: string, fullName: string) {
+    if (!adminToken) return;
+    try {
+      await adminRejectTeacher({ data: { token: adminToken, userId, fullName } });
+      toast.success(`${fullName} rejected`);
+      qc.invalidateQueries({ queryKey: ["admin-dashboard"] });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Rejection failed");
+    }
+  }
 
-  const pieData = stats.data ? [
-    { name: "Students", value: stats.data.students },
-    { name: "Teachers", value: stats.data.teachers },
-    { name: "Admins", value: stats.data.admins },
+  async function setRole(userId: string, currentRoles: AppRole[], next: AppRole) {
+    if (!adminToken) return;
+    try {
+      await adminSetUserRole({
+        data: { token: adminToken, userId, currentRoles, nextRole: next },
+      });
+      toast.success("Role updated");
+      qc.invalidateQueries({ queryKey: ["admin-dashboard"] });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Role update failed");
+    }
+  }
+
+  if (!adminToken) {
+    return (
+      <AppShell title="Admin Panel" subtitle="Administrator session required.">
+        <Card>
+          <CardContent className="py-10 text-center text-sm text-muted-foreground">
+            Sign in again using the Admin tab with your .env credentials.
+          </CardContent>
+        </Card>
+      </AppShell>
+    );
+  }
+
+  if (dashboard.isError) {
+    const message = dashboard.error instanceof Error ? dashboard.error.message : "Failed to load admin data";
+    return (
+      <AppShell title="Admin Panel" subtitle="Manage users, view system statistics and activity.">
+        <Card className="border-destructive/40">
+          <CardContent className="py-8 text-center text-sm">
+            <p className="text-destructive">{message}</p>
+            <p className="mt-2 text-muted-foreground">
+              Add SUPABASE_SERVICE_ROLE_KEY to your .env file so the admin panel can manage users.
+            </p>
+          </CardContent>
+        </Card>
+      </AppShell>
+    );
+  }
+
+  const stats = dashboard.data?.stats;
+  const users = dashboard.data?.users ?? [];
+  const pendingTeachers = dashboard.data?.pendingTeachers ?? [];
+  const logs = dashboard.data?.logs ?? [];
+
+  const pieData = stats ? [
+    { name: "Students", value: stats.students },
+    { name: "Teachers", value: stats.teachers },
+    { name: "Admins", value: stats.admins },
   ] : [];
   const COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)"];
 
   return (
     <AppShell title="Admin Panel" subtitle="Manage users, view system statistics and activity.">
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatTile label="Students" value={stats.data?.students} icon={Users} loading={stats.isLoading} />
-        <StatTile label="Teachers" value={stats.data?.teachers} icon={Shield} loading={stats.isLoading} />
-        <StatTile label="Notices" value={stats.data?.notices} icon={Megaphone} loading={stats.isLoading} />
-        <StatTile label="Resources" value={stats.data?.resources} icon={FileText} loading={stats.isLoading} />
+        <StatTile label="Students" value={stats?.students} icon={Users} loading={dashboard.isLoading} />
+        <StatTile label="Teachers" value={stats?.teachers} icon={Shield} loading={dashboard.isLoading} />
+        <StatTile label="Pending teachers" value={pendingTeachers.length} icon={Clock} loading={dashboard.isLoading} />
+        <StatTile label="Notices" value={stats?.notices} icon={Megaphone} loading={dashboard.isLoading} />
       </div>
+
+      <Card className="mt-6 border-amber-500/30">
+        <CardHeader>
+          <CardTitle className="font-display text-base flex items-center gap-2">
+            <Clock className="h-4 w-4 text-amber-600" />
+            Teacher registration requests
+            {!dashboard.isLoading && pendingTeachers.length > 0 && (
+              <Badge variant="secondary" className="ml-1">{pendingTeachers.length} pending</Badge>
+            )}
+          </CardTitle>
+          <CardDescription>
+            Approve or reject teachers who registered through the portal. Approved teachers can sign in immediately.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          {dashboard.isLoading ? (
+            <Skeleton className="m-4 h-24" />
+          ) : pendingTeachers.length ? (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Department</TableHead>
+                  <TableHead>Submitted</TableHead>
+                  <TableHead className="w-48 text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {pendingTeachers.map((t) => (
+                  <TableRow key={t.id}>
+                    <TableCell className="font-medium">{t.full_name}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{t.email}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{t.department ?? "—"}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {new Date(t.created_at).toLocaleString()}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-green-700 hover:text-green-800"
+                          onClick={() => approveTeacher(t.id, t.full_name)}
+                        >
+                          <Check className="mr-1 h-3.5 w-3.5" />
+                          Approve
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => rejectTeacher(t.id, t.full_name)}
+                        >
+                          <X className="mr-1 h-3.5 w-3.5" />
+                          Reject
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : (
+            <p className="px-5 py-8 text-center text-sm text-muted-foreground">
+              No pending teacher requests. New registrations will appear here for review.
+            </p>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
@@ -119,18 +210,19 @@ function AdminPanel() {
             <CardDescription>Promote, demote, or review accounts.</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
-            {users.isLoading ? <Skeleton className="m-4 h-40" /> : (
+            {dashboard.isLoading ? <Skeleton className="m-4 h-40" /> : (
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Name</TableHead>
                     <TableHead>Email / Roll</TableHead>
                     <TableHead>Dept</TableHead>
+                    <TableHead>Status</TableHead>
                     <TableHead className="w-40">Role</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {users.data?.map((u) => {
+                  {users.map((u) => {
                     const current = u.roles.includes("admin") ? "admin" : u.roles.includes("teacher") ? "teacher" : "student";
                     return (
                       <TableRow key={u.id}>
@@ -139,6 +231,23 @@ function AdminPanel() {
                           {u.roll_number ? <span className="font-mono">{u.roll_number}</span> : u.email}
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">{u.department ?? "—"}</TableCell>
+                        <TableCell>
+                          {u.verification_status && u.verification_status !== "not_applicable" ? (
+                            <Badge
+                              variant={
+                                u.verification_status === "approved"
+                                  ? "default"
+                                  : u.verification_status === "pending"
+                                    ? "secondary"
+                                    : "destructive"
+                              }
+                            >
+                              {VERIFICATION_LABEL[u.verification_status as keyof typeof VERIFICATION_LABEL]}
+                            </Badge>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
                         <TableCell>
                           <Select value={current} onValueChange={(v) => setRole(u.id, u.roles, v as AppRole)}>
                             <SelectTrigger><SelectValue /></SelectTrigger>
@@ -163,7 +272,7 @@ function AdminPanel() {
             <CardTitle className="font-display text-base">Role distribution</CardTitle>
           </CardHeader>
           <CardContent>
-            {stats.isLoading ? <Skeleton className="h-48 w-full" /> : (
+            {dashboard.isLoading ? <Skeleton className="h-48 w-full" /> : (
               <div className="h-56">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
@@ -185,9 +294,9 @@ function AdminPanel() {
           <CardTitle className="font-display text-base flex items-center gap-2"><CalIcon className="h-4 w-4 text-primary" /> Recent activity</CardTitle>
         </CardHeader>
         <CardContent>
-          {logs.isLoading ? <Skeleton className="h-24 w-full" /> : logs.data?.length ? (
+          {dashboard.isLoading ? <Skeleton className="h-24 w-full" /> : logs.length ? (
             <ul className="divide-y divide-border text-sm">
-              {logs.data.map((l) => (
+              {logs.map((l) => (
                 <li key={l.id} className="flex items-center justify-between py-2">
                   <div>
                     <Badge variant="outline" className="mr-2">{l.action}</Badge>

@@ -198,6 +198,7 @@ export type Database = {
           roll_number: string | null
           semester: number | null
           updated_at: string
+          verification_status: Database["public"]["Enums"]["verification_status"]
         }
         Insert: {
           avatar_url?: string | null
@@ -209,6 +210,7 @@ export type Database = {
           roll_number?: string | null
           semester?: number | null
           updated_at?: string
+          verification_status?: Database["public"]["Enums"]["verification_status"]
         }
         Update: {
           avatar_url?: string | null
@@ -220,6 +222,7 @@ export type Database = {
           roll_number?: string | null
           semester?: number | null
           updated_at?: string
+          verification_status?: Database["public"]["Enums"]["verification_status"]
         }
         Relationships: []
       }
@@ -291,6 +294,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      claim_first_admin: {
+        Args: never
+        Returns: undefined
+      }
+      ensure_admin_role: {
+        Args: { _expected_email: string }
+        Returns: undefined
+      }
       get_my_roles: {
         Args: never
         Returns: Database["public"]["Enums"]["app_role"][]
@@ -309,6 +320,7 @@ export type Database = {
       event_status: "upcoming" | "completed"
       notice_priority: "low" | "medium" | "high"
       resource_type: "notes" | "pyq" | "lab_manual"
+      verification_status: "not_applicable" | "pending" | "approved" | "rejected"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -441,6 +453,7 @@ export const Constants = {
       event_status: ["upcoming", "completed"],
       notice_priority: ["low", "medium", "high"],
       resource_type: ["notes", "pyq", "lab_manual"],
+      verification_status: ["not_applicable", "pending", "approved", "rejected"],
     },
   },
 } as const

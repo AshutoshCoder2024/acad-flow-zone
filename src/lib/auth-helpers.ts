@@ -1,5 +1,14 @@
 export type AppRole = "student" | "teacher" | "admin";
 
+export type VerificationStatus = "not_applicable" | "pending" | "approved" | "rejected";
+
+export const VERIFICATION_LABEL: Record<VerificationStatus, string> = {
+  not_applicable: "—",
+  pending: "Pending approval",
+  approved: "Approved",
+  rejected: "Rejected",
+};
+
 export const STUDENT_EMAIL_DOMAIN = "students.local";
 
 /** Build the synthetic email used to sign students in by roll number. */
