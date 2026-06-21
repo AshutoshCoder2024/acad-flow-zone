@@ -12,4 +12,6 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  // Required for Vercel. Use preset "vercel" when deploying to Vercel.
+  nitro: { preset: "vercel" },
 });
