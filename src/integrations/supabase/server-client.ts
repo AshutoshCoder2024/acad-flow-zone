@@ -1,5 +1,4 @@
 import { createClient } from '@supabase/supabase-js';
-import { getRequest } from '@tanstack/react-start/server';
 import type { Database } from './types';
 
 function getServerEnv() {
@@ -34,14 +33,3 @@ export function createServerSupabaseClient(token?: string) {
   });
 }
 
-export function createServerSupabaseClientFromRequest() {
-  const request = getRequest();
-  if (!request?.headers) {
-    throw new Error('No request headers available');
-  }
-
-  const authHeader = request.headers.get('authorization');
-  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined;
-
-  return createServerSupabaseClient(token);
-}

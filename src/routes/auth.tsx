@@ -182,9 +182,9 @@ function SignInForm({
       await supabase.auth.signOut();
       const response = await adminLogin({ data: parsed.data });
       setEnvAdminSession({
-        token: response.session.access_token,
+        token: response.token,
         username: response.username,
-        expiresAt: response.session.expires_at * 1000,
+        expiresAt: response.expiresAt,
       });
       toast.success("Signed in as administrator");
       await onAdminDone();

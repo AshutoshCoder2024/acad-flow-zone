@@ -1,9 +1,8 @@
-import { createServerSupabaseClient } from "@/integrations/supabase/server-client";
-import type { Session } from "@supabase/supabase-js";
+import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? `${ADMIN_USERNAME ?? "admin"}@local`;
+const TOKEN_EXPIRY_MS = 24 * 60 * 60 * 1000;
 
 function adminEnvMissing(): string | null {
   if (!ADMIN_USERNAME || !ADMIN_PASSWORD) {
@@ -12,7 +11,68 @@ function adminEnvMissing(): string | null {
   return null;
 }
 
-export async function ensureAdminAccount(username: string, password: string): Promise<{ session: Session; username: string }> {
+function buildTokenPayload(username: string, expiresAt: number, nonce: string) {
+  return `${username}:${expiresAt}:${nonce}`;
+}
+
+function signToken(payload: string) {
+  return createHmac("sha256", ADMIN_PASSWORD!).update(payload).digest("hex");
+}
+
+function encodeToken(payload: string, signature: string) {
+  return Buffer.from(`${payload}:${signature}`).toString("base64url");
+}
+
+function decodeToken(token: string) {
+  const raw = Buffer.from(token, "base64url").toString("utf8");
+  const parts = raw.split(":");
+  if (parts.length !== 4) {
+    throw new Error("Invalid administrator session token.");
+  }
+
+  const [username, expiresAtText, nonce, signature] = parts;
+  const expiresAt = Number(expiresAtText);
+  if (!username || Number.isNaN(expiresAt) || !nonce || !signature) {
+    throw new Error("Invalid administrator session token.");
+  }
+
+  return { username, expiresAt, nonce, signature };
+}
+
+function createAdminToken(username: string) {
+  const expiresAt = Date.now() + TOKEN_EXPIRY_MS;
+  const nonce = randomBytes(16).toString("hex");
+  const payload = buildTokenPayload(username, expiresAt, nonce);
+  const signature = signToken(payload);
+  return { token: encodeToken(payload, signature), expiresAt };
+}
+
+export function verifyAdminToken(token: string) {
+  const configError = adminEnvMissing();
+  if (configError) throw new Error(configError);
+
+  const { username, expiresAt, nonce, signature } = decodeToken(token);
+  const payload = buildTokenPayload(username, expiresAt, nonce);
+  const expectedSignature = signToken(payload);
+
+  const signatureBuffer = Buffer.from(signature, "utf8");
+  const expectedBuffer = Buffer.from(expectedSignature, "utf8");
+  if (signatureBuffer.length !== expectedBuffer.length || !timingSafeEqual(signatureBuffer, expectedBuffer)) {
+    throw new Error("Invalid administrator session token.");
+  }
+
+  if (Date.now() > expiresAt) {
+    throw new Error("Administrator session has expired. Please sign in again.");
+  }
+
+  if (username !== ADMIN_USERNAME) {
+    throw new Error("Invalid administrator session.");
+  }
+
+  return { username };
+}
+
+export async function ensureAdminAccount(username: string, password: string) {
   const configError = adminEnvMissing();
   if (configError) throw new Error(configError);
 
@@ -20,38 +80,6 @@ export async function ensureAdminAccount(username: string, password: string): Pr
     throw new Error("Invalid administrator credentials.");
   }
 
-  const supabase = createServerSupabaseClient();
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email: ADMIN_EMAIL,
-    password: ADMIN_PASSWORD!,
-  });
-
-  if (!error && data.session) {
-    return { session: data.session, username };
-  }
-
-  if (error && /invalid login credentials|wrong password|user not found|has not yet been confirmed/i.test(error.message)) {
-    const signUpResult = await supabase.auth.signUp({
-      email: ADMIN_EMAIL,
-      password: ADMIN_PASSWORD!,
-      options: {
-        data: {
-          role: "admin",
-          bootstrap_admin: true,
-          full_name: "Administrator",
-        },
-      },
-    });
-
-    if (signUpResult.error) {
-      throw new Error(signUpResult.error.message);
-    }
-    if (!signUpResult.data?.session) {
-      throw new Error("Administrator account created, but no session was returned. Check Supabase email confirmation settings.");
-    }
-
-    return { session: signUpResult.data.session, username };
-  }
-
-  throw new Error(error?.message ?? "Failed to sign in administrator.");
+  const { token, expiresAt } = createAdminToken(username);
+  return { token, username, expiresAt };
 }

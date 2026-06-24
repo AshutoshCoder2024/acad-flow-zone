@@ -20,16 +20,16 @@ const setRoleSchema = z.object({
 });
 
 async function adminClient(token: string) {
-  const { assertAdminUser } = await import("@/lib/admin-auth.server");
+  const { verifyAdminToken } = await import("@/lib/admin-auth.server");
   const { createServerSupabaseClient } = await import("@/integrations/supabase/server-client");
-  return { assertAdminUser, supabase: createServerSupabaseClient(token) };
+  verifyAdminToken(token);
+  return { supabase: createServerSupabaseClient() };
 }
 
 export const fetchAdminDashboard = createServerFn({ method: "POST" })
   .validator(tokenOnly)
   .handler(async ({ data }) => {
-    const { assertAdminUser, supabase } = await adminClient(data.token);
-    await assertAdminUser(supabase);
+    const { supabase } = await adminClient(data.token);
 
     const [students, teachers, admins, notices, resources, events, profiles, roles, pending, logs] =
       await Promise.all([
@@ -70,8 +70,7 @@ export const fetchAdminDashboard = createServerFn({ method: "POST" })
 export const adminApproveTeacher = createServerFn({ method: "POST" })
   .validator(approveSchema)
   .handler(async ({ data }) => {
-    const { assertAdminUser, supabase } = await adminClient(data.token);
-    await assertAdminUser(supabase);
+    const { supabase } = await adminClient(data.token);
 
     const { error: profileErr } = await supabase
       .from("profiles")
@@ -95,8 +94,7 @@ export const adminApproveTeacher = createServerFn({ method: "POST" })
 export const adminRejectTeacher = createServerFn({ method: "POST" })
   .validator(rejectSchema)
   .handler(async ({ data }) => {
-    const { assertAdminUser, supabase } = await adminClient(data.token);
-    await assertAdminUser(supabase);
+    const { supabase } = await adminClient(data.token);
 
     const { error } = await supabase
       .from("profiles")
@@ -115,8 +113,7 @@ export const adminRejectTeacher = createServerFn({ method: "POST" })
 export const adminSetUserRole = createServerFn({ method: "POST" })
   .validator(setRoleSchema)
   .handler(async ({ data }) => {
-    const { assertAdminUser, supabase } = await adminClient(data.token);
-    await assertAdminUser(supabase);
+    const { supabase } = await adminClient(data.token);
 
     const { error: delErr } = await supabase.from("user_roles").delete().eq("user_id", data.userId);
     if (delErr) throw new Error(delErr.message);
@@ -187,8 +184,7 @@ function decodeBase64(base64: string): Uint8Array {
 export const adminFetchNotices = createServerFn({ method: "POST" })
   .validator(noticeListSchema)
   .handler(async ({ data }) => {
-    const { assertAdminUser, supabase } = await adminClient(data.token);
-    await assertAdminUser(supabase);
+    const { supabase } = await adminClient(data.token);
 
     const from = (data.page - 1) * data.pageSize;
     let q = supabase
@@ -211,8 +207,7 @@ export const adminFetchNotices = createServerFn({ method: "POST" })
 export const adminCreateNotice = createServerFn({ method: "POST" })
   .validator(noticeCreateSchema)
   .handler(async ({ data }) => {
-    const { assertAdminUser, supabase } = await adminClient(data.token);
-    await assertAdminUser(supabase);
+    const { supabase } = await adminClient(data.token);
 
     let attachment_url: string | null = null;
     let attachment_name: string | null = null;
@@ -247,8 +242,7 @@ export const adminCreateNotice = createServerFn({ method: "POST" })
 export const adminDeleteNotice = createServerFn({ method: "POST" })
   .validator(noticeDeleteSchema)
   .handler(async ({ data }) => {
-    const { assertAdminUser, supabase } = await adminClient(data.token);
-    await assertAdminUser(supabase);
+    const { supabase } = await adminClient(data.token);
 
     if (data.attachmentUrl) {
       await supabase.storage.from("notice-attachments").remove([data.attachmentUrl]);
@@ -261,8 +255,7 @@ export const adminDeleteNotice = createServerFn({ method: "POST" })
 export const adminFetchResources = createServerFn({ method: "POST" })
   .validator(resourceListSchema)
   .handler(async ({ data }) => {
-    const { assertAdminUser, supabase } = await adminClient(data.token);
-    await assertAdminUser(supabase);
+    const { supabase } = await adminClient(data.token);
 
     let q = supabase.from("resources").select("*").order("created_at", { ascending: false });
     if (data.search?.trim()) {
@@ -283,8 +276,7 @@ export const adminFetchResources = createServerFn({ method: "POST" })
 export const adminCreateResource = createServerFn({ method: "POST" })
   .validator(resourceCreateSchema)
   .handler(async ({ data }) => {
-    const { assertAdminUser, supabase } = await adminClient(data.token);
-    await assertAdminUser(supabase);
+    const { supabase } = await adminClient(data.token);
 
     const path = `admin/${Date.now()}-${data.fileName}`;
     const { error: upErr } = await supabase.storage
@@ -314,8 +306,7 @@ export const adminCreateResource = createServerFn({ method: "POST" })
 export const adminDeleteResource = createServerFn({ method: "POST" })
   .validator(resourceDeleteSchema)
   .handler(async ({ data }) => {
-    const { assertAdminUser, supabase } = await adminClient(data.token);
-    await assertAdminUser(supabase);
+    const { supabase } = await adminClient(data.token);
 
     await supabase.storage.from("resources").remove([data.fileUrl]);
     const { error } = await supabase.from("resources").delete().eq("id", data.id);
@@ -331,8 +322,7 @@ export const adminGetSignedUrl = createServerFn({ method: "POST" })
     }),
   )
   .handler(async ({ data }) => {
-    const { assertAdminUser, supabase } = await adminClient(data.token);
-    await assertAdminUser(supabase);
+    const { supabase } = await adminClient(data.token);
 
     const { data: signed, error } = await supabase
       .storage.from(data.bucket)

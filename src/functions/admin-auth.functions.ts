@@ -18,9 +18,7 @@ export const adminLogin = createServerFn({ method: "POST" })
 export const validateAdminSession = createServerFn({ method: "POST" })
   .validator(tokenOnly)
   .handler(async ({ data }) => {
-    const { createServerSupabaseClient } = await import("@/integrations/supabase/server-client");
-    const { assertAdminUser } = await import("@/lib/admin-auth.server");
-    const supabase = createServerSupabaseClient(data.token);
-    await assertAdminUser(supabase);
-    return { valid: true as const, username: process.env.ADMIN_USERNAME ?? "admin" };
+    const { verifyAdminToken } = await import("@/lib/admin-auth.server");
+    const { username } = verifyAdminToken(data.token);
+    return { valid: true as const, username };
   });
