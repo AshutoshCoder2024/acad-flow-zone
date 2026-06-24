@@ -104,7 +104,7 @@ function AdminPanel() {
           <CardContent className="py-8 text-center text-sm">
             <p className="text-destructive">{message}</p>
             <p className="mt-2 text-muted-foreground">
-              Add SUPABASE_SERVICE_ROLE_KEY to your .env file so the admin panel can manage users.
+              Your administrator session must be refreshed. Sign in again using the Admin tab.
             </p>
           </CardContent>
         </Card>

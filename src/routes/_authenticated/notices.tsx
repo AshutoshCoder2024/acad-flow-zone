@@ -7,6 +7,13 @@ import { z } from "zod";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import {
+  adminCreateNotice,
+  adminDeleteNotice,
+  adminFetchNotices,
+  adminGetSignedUrl,
+} from "@/functions/admin-api.functions";
+import { fileToBase64 } from "@/lib/file-helpers";
 import { AppShell } from "@/components/AppShell";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -37,7 +44,7 @@ const noticeSchema = z.object({
 });
 
 function NoticesPage() {
-  const { role, user } = useAuth();
+  const { role, user, isEnvAdmin, adminToken } = useAuth();
   const canPost = role === "teacher" || role === "admin";
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
@@ -46,8 +53,20 @@ function NoticesPage() {
   const [open, setOpen] = useState(false);
 
   const query = useQuery({
-    queryKey: ["notices", { search, priority, page }],
+    queryKey: ["notices", { search, priority, page, isEnvAdmin }],
     queryFn: async () => {
+      if (isEnvAdmin && adminToken) {
+        return adminFetchNotices({
+          data: {
+            token: adminToken,
+            search,
+            priority: priority as "all" | "low" | "medium" | "high",
+            page,
+            pageSize: PAGE_SIZE,
+          },
+        });
+      }
+
       let q = supabase
         .from("notices")
         .select("*", { count: "exact" })
@@ -64,15 +83,37 @@ function NoticesPage() {
 
   const totalPages = Math.max(1, Math.ceil((query.data?.total ?? 0) / PAGE_SIZE));
 
-  async function handleCreate(form: FormData, file: File | null) {
-    if (!user) return;
+  async function handleCreate(form: FormData, file: File | null, priorityValue: string) {
     const parsed = noticeSchema.safeParse({
       title: form.get("title"),
       description: form.get("description"),
-      priority: form.get("priority"),
+      priority: priorityValue,
     });
     if (!parsed.success) return toast.error(parsed.error.issues[0].message);
 
+    if (isEnvAdmin && adminToken) {
+      try {
+        let attachmentBase64: string | undefined;
+        let attachmentName: string | undefined;
+        if (file) {
+          attachmentBase64 = await fileToBase64(file);
+          attachmentName = file.name;
+        }
+        await adminCreateNotice({
+          data: { token: adminToken, ...parsed.data, attachmentBase64, attachmentName },
+        });
+        toast.success("Notice posted");
+        setOpen(false);
+        qc.invalidateQueries({ queryKey: ["notices"] });
+        qc.invalidateQueries({ queryKey: ["recent-notices"] });
+        qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Failed to post notice");
+      }
+      return;
+    }
+
+    if (!user) return toast.error("You must be signed in to post a notice");
     let attachment_url: string | null = null;
     let attachment_name: string | null = null;
     if (file) {
@@ -97,8 +138,20 @@ function NoticesPage() {
     qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
   }
 
-  async function handleDelete(id: string) {
+  async function handleDelete(id: string, attachmentUrl?: string | null) {
     if (!confirm("Delete this notice?")) return;
+
+    if (isEnvAdmin && adminToken) {
+      try {
+        await adminDeleteNotice({ data: { token: adminToken, id, attachmentUrl } });
+        toast.success("Deleted");
+        qc.invalidateQueries({ queryKey: ["notices"] });
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Delete failed");
+      }
+      return;
+    }
+
     const { error } = await supabase.from("notices").delete().eq("id", id);
     if (error) return toast.error(error.message);
     toast.success("Deleted");
@@ -106,6 +159,21 @@ function NoticesPage() {
   }
 
   async function downloadAttachment(path: string, name: string) {
+    if (isEnvAdmin && adminToken) {
+      try {
+        const signedUrl = await adminGetSignedUrl({
+          data: { token: adminToken, bucket: "notice-attachments", path },
+        });
+        const a = document.createElement("a");
+        a.href = signedUrl;
+        a.download = name;
+        a.click();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Download failed");
+      }
+      return;
+    }
+
     const { data, error } = await supabase.storage.from("notice-attachments").createSignedUrl(path, 60);
     if (error) return toast.error(error.message);
     const a = document.createElement("a");
@@ -185,7 +253,7 @@ function NoticesPage() {
                       </div>
                     </div>
                     {canDelete && (
-                      <Button variant="ghost" size="icon" onClick={() => handleDelete(n.id)} aria-label="Delete">
+                      <Button variant="ghost" size="icon" onClick={() => handleDelete(n.id, n.attachment_url)} aria-label="Delete">
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     )}
@@ -220,15 +288,16 @@ function NoticesPage() {
   );
 }
 
-function NoticeForm({ onSubmit }: { onSubmit: (f: FormData, file: File | null) => Promise<unknown> }) {
+function NoticeForm({ onSubmit }: { onSubmit: (f: FormData, file: File | null, priority: string) => Promise<unknown> }) {
   const [file, setFile] = useState<File | null>(null);
+  const [priority, setPriority] = useState("medium");
   const [submitting, setSubmitting] = useState(false);
   return (
     <form
       onSubmit={async (e) => {
         e.preventDefault();
         setSubmitting(true);
-        await onSubmit(new FormData(e.currentTarget), file);
+        await onSubmit(new FormData(e.currentTarget), file, priority);
         setSubmitting(false);
       }}
       className="space-y-3"
@@ -243,7 +312,7 @@ function NoticeForm({ onSubmit }: { onSubmit: (f: FormData, file: File | null) =
       </div>
       <div className="space-y-1.5">
         <Label>Priority</Label>
-        <Select name="priority" defaultValue="medium">
+        <Select value={priority} onValueChange={setPriority}>
           <SelectTrigger><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="low">Low</SelectItem>

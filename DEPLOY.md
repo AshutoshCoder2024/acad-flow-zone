@@ -73,9 +73,8 @@ Migration files (run in this order):
 | **Project URL** | `SUPABASE_URL` and `VITE_SUPABASE_URL` |
 | **Project ID** | `SUPABASE_PROJECT_ID` and `VITE_SUPABASE_PROJECT_ID` |
 | **anon / public** key | `SUPABASE_PUBLISHABLE_KEY` and `VITE_SUPABASE_PUBLISHABLE_KEY` |
-| **service_role** key (secret) | `SUPABASE_SERVICE_ROLE_KEY` |
 
-> **Important:** `service_role` is **not** the same as `anon`. Never put `service_role` in a `VITE_` variable. It must only exist on the server (Vercel env, no `VITE_` prefix).
+> **Note:** The admin panel now uses a server-side administrator session and authenticated admin user flow. `SUPABASE_SERVICE_ROLE_KEY` is no longer required for standard admin panel operations.
 
 ---
 
@@ -176,7 +175,6 @@ Used by SSR and server functions. Same Supabase API page.
 | `SUPABASE_URL` | Same as `VITE_SUPABASE_URL` | Duplicate without `VITE_` for server code |
 | `SUPABASE_PUBLISHABLE_KEY` | Same as anon key | Server-side Supabase client |
 | `SUPABASE_PROJECT_ID` | Same project ID | Reference |
-| `SUPABASE_SERVICE_ROLE_KEY` | `eyJhbGci...` (**service_role**) | **Secret.** Required for admin panel (approve teachers, manage users). Copy **service_role** key only. |
 
 ### 4.3 Administrator login (server only)
 
@@ -191,7 +189,7 @@ Admin does **not** use Supabase Auth. Credentials are checked on the server agai
 
 ### 4.4 Quick copy checklist
 
-In Vercel UI, you will create **9 variables**:
+In Vercel UI, you will create **8 variables**:
 
 ```
 VITE_SUPABASE_URL
@@ -200,7 +198,6 @@ VITE_SUPABASE_PROJECT_ID
 SUPABASE_URL
 SUPABASE_PUBLISHABLE_KEY
 SUPABASE_PROJECT_ID
-SUPABASE_SERVICE_ROLE_KEY
 ADMIN_USERNAME
 ADMIN_PASSWORD
 ```
@@ -273,8 +270,9 @@ Open your production URL and test:
 
 ### Admin panel empty or error?
 
-- Confirm `SUPABASE_SERVICE_ROLE_KEY` is the **service_role** key (not anon)  
-- Redeploy after fixing env vars  
+- Confirm `ADMIN_USERNAME` and `ADMIN_PASSWORD` are set correctly  
+- Sign in again after updating env vars  
+- Check server function errors if the admin session does not validate  
 
 ---
 
@@ -331,10 +329,11 @@ vercel env pull .env.local
 - No extra spaces in Vercel values  
 - Redeploy after changing admin env vars  
 
-### Admin panel: service role / missing key error
+### Admin panel: session validation error
 
-- Set `SUPABASE_SERVICE_ROLE_KEY` from Supabase → Settings → API → **service_role**  
-- Must **not** use the anon key  
+- Confirm `ADMIN_USERNAME` and `ADMIN_PASSWORD` are set correctly  
+- No Supabase user is created for admin  
+- Check server function errors if the admin session does not validate  
 
 ### Student login works locally but not on Vercel
 
@@ -345,7 +344,7 @@ vercel env pull .env.local
 
 - Confirm migrations ran (`verification_status` column exists)  
 - Check admin panel network tab for server function errors  
-- Verify `SUPABASE_SERVICE_ROLE_KEY` is correct  
+- Ensure the admin session is valid and the user role was updated correctly  
 
 ### Attendance returns empty data
 
@@ -357,7 +356,6 @@ vercel env pull .env.local
 ## Security checklist before going live
 
 - [ ] Change `ADMIN_PASSWORD` from default to a strong unique password  
-- [ ] `SUPABASE_SERVICE_ROLE_KEY` only on Vercel (never in Git, never `VITE_`)  
 - [ ] Do not commit `.env` (keep secrets in Vercel only)  
 - [ ] Supabase RLS enabled (migrations already enable this)  
 - [ ] Restrict Supabase **Redirect URLs** to your real domains in production  
@@ -372,7 +370,7 @@ vercel env pull .env.local
 | `.env` | Local dev only — copy values to Vercel, do not commit secrets |
 | `supabase/migrations/` | Database schema — run via `supabase db push` |
 | `src/functions/admin-auth.functions.ts` | Env-based admin login |
-| `src/functions/admin-api.functions.ts` | Admin panel API (uses service role) |
+| `src/functions/admin-api.functions.ts` | Admin panel API (authenticated admin session) |
 | `src/functions/attendance.functions.ts` | SXC attendance proxy |
 
 ---

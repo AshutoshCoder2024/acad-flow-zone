@@ -8,6 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { rollToEmail, type AppRole } from "@/lib/auth-helpers";
 import { useAuth } from "@/hooks/use-auth";
 import { adminLogin } from "@/functions/admin-auth.functions";
+import { registerAccount } from "@/functions/register.functions";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -179,8 +180,12 @@ function SignInForm({
     setLoading(true);
     try {
       await supabase.auth.signOut();
-      const session = await adminLogin({ data: parsed.data });
-      setEnvAdminSession(session);
+      const response = await adminLogin({ data: parsed.data });
+      setEnvAdminSession({
+        token: response.session.access_token,
+        username: response.username,
+        expiresAt: response.session.expires_at * 1000,
+      });
       toast.success("Signed in as administrator");
       await onAdminDone();
     } catch (err) {
@@ -271,29 +276,28 @@ function SignUpForm() {
     }
     const d = parsed.data;
     const signupRole = d.role;
-    const email = signupRole === "student" ? rollToEmail(d.roll!) : d.email!;
     if (signupRole === "student" && !d.roll) return toast.error("Roll number required");
     if (signupRole === "teacher" && !d.email) return toast.error("Email required");
     if (signupRole === "teacher" && !d.department) return toast.error("Department required");
 
     setLoading(true);
-    const { error } = await supabase.auth.signUp({
-      email,
-      password: d.password,
-      options: {
+    try {
+      await registerAccount({
         data: {
           role: signupRole,
           full_name: d.full_name,
-          roll_number: d.roll ?? null,
-          department: d.department ?? null,
-          semester: d.semester ?? null,
+          email: d.email,
+          roll: d.roll,
+          department: d.department,
+          semester: d.semester,
+          password: d.password,
         },
-      },
-    });
+      });
+    } catch (err) {
+      setLoading(false);
+      return toast.error(err instanceof Error ? err.message : "Registration failed");
+    }
     setLoading(false);
-    if (error) return toast.error(error.message);
-
-    await supabase.auth.signOut();
 
     if (signupRole === "teacher") {
       setSubmitted(true);

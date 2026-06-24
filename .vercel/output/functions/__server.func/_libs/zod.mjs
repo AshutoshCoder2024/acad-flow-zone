@@ -3505,7 +3505,7 @@ var ZodFirstPartyTypeKind;
 	ZodFirstPartyTypeKind["ZodReadonly"] = "ZodReadonly";
 })(ZodFirstPartyTypeKind || (ZodFirstPartyTypeKind = {}));
 var stringType = ZodString.create;
-ZodNumber.create;
+var numberType = ZodNumber.create;
 ZodNaN.create;
 ZodBigInt.create;
 ZodBoolean.create;
@@ -3561,4 +3561,4 @@ var coerce = {
 	}))
 };
 //#endregion
-export { objectType as a, literalType as i, coerce as n, stringType as o, enumType as r, arrayType as t };
+export { numberType as a, literalType as i, coerce as n, objectType as o, enumType as r, stringType as s, arrayType as t };

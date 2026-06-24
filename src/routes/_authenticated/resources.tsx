@@ -7,6 +7,13 @@ import { z } from "zod";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import {
+  adminCreateResource,
+  adminDeleteResource,
+  adminFetchResources,
+  adminGetSignedUrl,
+} from "@/functions/admin-api.functions";
+import { fileToBase64 } from "@/lib/file-helpers";
 import { AppShell } from "@/components/AppShell";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -40,7 +47,7 @@ export const Route = createFileRoute("/_authenticated/resources")({
 });
 
 function ResourcesPage() {
-  const { role, user } = useAuth();
+  const { role, user, isEnvAdmin, adminToken } = useAuth();
   const canUpload = role === "teacher" || role === "admin";
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
@@ -49,8 +56,19 @@ function ResourcesPage() {
   const [open, setOpen] = useState(false);
 
   const query = useQuery({
-    queryKey: ["resources", { search, type, semester }],
+    queryKey: ["resources", { search, type, semester, isEnvAdmin }],
     queryFn: async () => {
+      if (isEnvAdmin && adminToken) {
+        return adminFetchResources({
+          data: {
+            token: adminToken,
+            search,
+            type: type as "all" | "notes" | "pyq" | "lab_manual",
+            semester,
+          },
+        });
+      }
+
       let q = supabase.from("resources").select("*").order("created_at", { ascending: false });
       if (search.trim()) q = q.or(`title.ilike.%${search}%,subject.ilike.%${search}%`);
       if (type !== "all") q = q.eq("type", type as "notes" | "pyq" | "lab_manual");
@@ -61,17 +79,34 @@ function ResourcesPage() {
     },
   });
 
-  async function handleCreate(form: FormData, file: File | null) {
-    if (!user) return;
+  async function handleCreate(form: FormData, file: File | null, typeValue: string) {
     if (!file) return toast.error("File required");
     const parsed = resourceSchema.safeParse({
       title: form.get("title"),
       subject: form.get("subject"),
       semester: form.get("semester"),
-      type: form.get("type"),
+      type: typeValue,
       description: form.get("description") || null,
     });
     if (!parsed.success) return toast.error(parsed.error.issues[0].message);
+
+    if (isEnvAdmin && adminToken) {
+      try {
+        const fileBase64 = await fileToBase64(file);
+        await adminCreateResource({
+          data: { token: adminToken, ...parsed.data, fileBase64, fileName: file.name },
+        });
+        toast.success("Resource uploaded");
+        setOpen(false);
+        qc.invalidateQueries({ queryKey: ["resources"] });
+        qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Upload failed");
+      }
+      return;
+    }
+
+    if (!user) return toast.error("You must be signed in to upload a resource");
     const path = `${user.id}/${Date.now()}-${file.name}`;
     const { error: upErr } = await supabase.storage.from("resources").upload(path, file);
     if (upErr) return toast.error(upErr.message);
@@ -90,6 +125,18 @@ function ResourcesPage() {
 
   async function handleDelete(id: string, path: string) {
     if (!confirm("Delete this resource?")) return;
+
+    if (isEnvAdmin && adminToken) {
+      try {
+        await adminDeleteResource({ data: { token: adminToken, id, fileUrl: path } });
+        toast.success("Deleted");
+        qc.invalidateQueries({ queryKey: ["resources"] });
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Delete failed");
+      }
+      return;
+    }
+
     await supabase.storage.from("resources").remove([path]);
     const { error } = await supabase.from("resources").delete().eq("id", id);
     if (error) return toast.error(error.message);
@@ -98,6 +145,21 @@ function ResourcesPage() {
   }
 
   async function download(path: string, name: string) {
+    if (isEnvAdmin && adminToken) {
+      try {
+        const signedUrl = await adminGetSignedUrl({
+          data: { token: adminToken, bucket: "resources", path },
+        });
+        const a = document.createElement("a");
+        a.href = signedUrl;
+        a.download = name;
+        a.click();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Download failed");
+      }
+      return;
+    }
+
     const { data, error } = await supabase.storage.from("resources").createSignedUrl(path, 60);
     if (error) return toast.error(error.message);
     const a = document.createElement("a");
@@ -192,15 +254,16 @@ function ResourcesPage() {
   );
 }
 
-function ResourceForm({ onSubmit }: { onSubmit: (f: FormData, file: File | null) => Promise<unknown> }) {
+function ResourceForm({ onSubmit }: { onSubmit: (f: FormData, file: File | null, type: string) => Promise<unknown> }) {
   const [file, setFile] = useState<File | null>(null);
+  const [type, setType] = useState("notes");
   const [submitting, setSubmitting] = useState(false);
   return (
     <form
       onSubmit={async (e) => {
         e.preventDefault();
         setSubmitting(true);
-        await onSubmit(new FormData(e.currentTarget), file);
+        await onSubmit(new FormData(e.currentTarget), file, type);
         setSubmitting(false);
       }}
       className="space-y-3"
@@ -212,7 +275,7 @@ function ResourceForm({ onSubmit }: { onSubmit: (f: FormData, file: File | null)
       </div>
       <div className="space-y-1.5">
         <Label>Type</Label>
-        <Select name="type" defaultValue="notes">
+        <Select value={type} onValueChange={setType}>
           <SelectTrigger><SelectValue /></SelectTrigger>
           <SelectContent>
             {TYPES.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
